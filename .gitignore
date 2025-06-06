@@ -1,0 +1,13 @@
+.DS_store
+
+#folders
+fft_lab/image_sample
+fft_lab/image_proportional
+fft_lab/profiler
+.vscode
+fft_lab/imgs
+
+#files
+fft_lab/fft_hybrid
+fft_lab/fft_serial
+fft_lab/*.trace
