@@ -25,6 +25,16 @@
     ```
     sbatch run_multi-nodes.sh     
     ```
+    **Addition** :
+    
+    In run_multi-nodes.sh, you can change the args to fix the MPI_nodes and proc per MPI_task.
+    
+    `--num_workers`: num of proc per MPI_task;
+    `--cpus-per-task`: cpus per slurm task: MPI_task;
+    `--nodes`: num of nodes
+    `--ntasks-per-node`: whats means like its name;
+
+    Total_MPI_tasks = nodes * ntasks-per-nodes;
 
 
 *MPI NOTIFICATION*

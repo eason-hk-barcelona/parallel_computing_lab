@@ -3,7 +3,8 @@ import numpy as np
 import time
 from main import load_mnist_data
 from heapq import heappush, heappushpop
-
+import multiprocessing
+import argparse
 # ========== KNN 函数 ==========
 
 def euclidean_distance(x1, x2):
@@ -49,18 +50,69 @@ def knn_serial(X_train, y_train, X_test, y_test, k=5):
     return accuracy, correct, len(X_test)
 
 
+def knn_parallel(x_train, y_train, x_test, y_test, k, num_workers=4):
+    """
+    使用多进程模拟并行 KNN
+    """
+    def worker(test_subset, accs, corrects, idx):
+        """
+        每个进程处理一部分测试数据
+        """
+        acc, correct, size = knn_serial(x_train, y_train, test_subset, y_test[idx:idx+len(test_subset)], k)
+        # results[idx] = {"acc": acc, 'corrects': corrects, 'size': size}
+        accs[idx] = acc
+        corrects[idx] = correct
+        # print(f"进程 {idx} 完成计算，局部准确率: {acc:.4f}, 正确分类数: {correct}, 测试集大小: {size}")
+
+    # 将测试数据分块
+    chunk_size = len(x_test) // num_workers
+    chunks = [x_test[i:i+chunk_size] for i in range(0, len(x_test), chunk_size)]
+
+    # 创建共享字典存储结果
+    manager = multiprocessing.Manager()
+    # results = manager.dict()
+    accs = manager.dict()
+    corrects = manager.dict()
+
+    # 启动多进程
+    processes = []
+    for i, chunk in enumerate(chunks):
+        p = multiprocessing.Process(target=worker, args=(chunk, accs, corrects, i * chunk_size))
+        processes.append(p)
+        p.start()
+
+    # 等待所有进程完成
+    for p in processes:
+        p.join()
+
+    # 汇总结果
+    total_corrects = sum(corrects.values())
+    total_size = len(x_test)
+    total_accuracy = total_corrects / total_size
+    return total_accuracy, total_corrects, total_size
+
+
 # ========== 主程序 ==========
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="MPI KNN Classification")
+    parser.add_argument('--train_size', type=int, default=10000, help='Size of the training set')
+    parser.add_argument('--test_size', type=int, default=2000, help='Size of the test set')
+    parser.add_argument('--k', type=int, default=5, help='Number of neighbors for KNN')
+    parser.add_argument('--num_workers', type=int, default=16, help='Number of parallel workers')
+    args = parser.parse_args()
+    
     # 初始化 MPI
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()  # 当前进程的编号
     size = comm.Get_size()  # 总进程数
+    
+    MPI_start_time = time.time()
 
     # 配置参数
     raw_folder = './data/MNIST/raw'  # 原始数据文件夹
-    train_size = 1000              # 训练集大小
-    test_size = 200                # 测试集大小
-    k = 5                           # KNN 参数
+    train_size = args.train_size              # 训练集大小
+    test_size = args.test_size               # 测试集大小
+    k = args.k                           # KNN 参数
 
     # 加载数据（假设数据已预处理为 numpy 数组）
     if rank == 0:
@@ -91,7 +143,8 @@ if __name__ == "__main__":
 
     # 各节点运行 KNN
     start_time = time.time()
-    local_accuracy, local_corrects, local_size = knn_serial(x_train, y_train, x_test_chunk, y_test_chunk, k)
+    # local_accuracy, local_corrects, local_size = knn_serial(x_train, y_train, x_test_chunk, y_test_chunk, k)
+    local_accuracy, local_corrects, local_size = knn_parallel(x_train, y_train, x_test_chunk, y_test_chunk, k, num_workers=args.num_workers)
     local_time = time.time() - start_time
     print(f"节点 {rank} 完成计算，局部准确率: {local_accuracy:.4f}, 耗时: {local_time:.2f} 秒")
 
@@ -99,8 +152,10 @@ if __name__ == "__main__":
     # accuracies = comm.gather(local_accuracy, root=0)
     corrects = comm.gather(local_corrects, root=0)
     sizes = comm.gather(local_size, root=0)
+    
+    MPI_end_time = time.time()
 
     # 主节点汇总结果
     if rank == 0:
         total_accuracy = sum(corrects) / sum(sizes)
-        print(f"总准确率: {total_accuracy:.4f}")
+        print(f"总准确率: {total_accuracy:.4f}, 总耗时: {MPI_end_time - MPI_start_time:.2f} 秒")
